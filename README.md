@@ -62,56 +62,29 @@ FastAPI 服务器实现，提供语音助手的核心功能。
    DASHSCOPE_API_KEY=your_api_key_here
    ```
 
-## 使用方法
-
-1. 启动服务器：
-   ```bash
-   python sever.py
-   ```
-
-2. 服务器将在 `http://127.0.0.1:8001` 上运行
-
-3. 发送请求开始对话：
-   ```bash
-   curl -X POST "http://127.0.0.1:8001/start" \
-        -H "Content-Type: application/json" \
-        -d '{"text": "你好，介绍一下你自己"}'
-   ```
-
-4. 停止当前语音播放：
-   ```bash
-   curl -X POST "http://127.0.0.1:8001/stop"
-   ```
-
-5. 检查服务状态：
-   ```bash
-   curl -X GET "http://127.0.0.1:8001/status"
-   ```
-
-6. 健康检查：
-   ```bash
-   curl -X GET "http://127.0.0.1:8001/health"
-   ```
-
 ## API 接口文档
 
-### POST /start
+### POST /speak
 开始一个新的语音合成会话
 
 **请求体：**
 ```json
 {
-  "text": "要转换为语音的文本"
+  "data": [
+    "你好，这是一个测试",
+    "这是追加的内容"
+  ]
 }
 ```
 
 **响应示例：**
 ```json
 {
-  "status": "started",
-  "session_id": 1,
-  "query": "要转换为语音的文本",
-  "message": "Speech synthesis started"
+    "status": "started",
+    "session_id": 1,
+    "message": "Speech synthesis started",
+    "voice": "cosyvoice-v3-prefix-36d6a3f4cbae4cd8bd3664acba2cc891",
+    "model": "cosyvoice-v3"
 }
 ```
 
@@ -121,39 +94,15 @@ FastAPI 服务器实现，提供语音助手的核心功能。
 **响应示例：**
 ```json
 {
-  "status": "stopped",
-  "message": "Speech synthesis stopped immediately"
-}
-```
-
-### GET /status
-获取当前语音合成状态
-
-**响应示例：**
-```json
-{
-  "active": true,
-  "session_id": 1,
-  "stop_requested": false,
-  "has_player": true,
-  "has_synthesizer": true
-}
-```
-
-### GET /health
-服务健康检查
-
-**响应示例：**
-```json
-{
-  "status": "healthy",
-  "service": "voice-ai-assistant"
+    "status": "stopped",
+    "message": "Stopped successfully",
+    "session_id": null
 }
 ```
 
 ## 工作原理
 
-1. 用户通过 `/start` 接口发送文本查询
+1. 用户通过 `/speak` 接口发送文本查询
 2. 服务器创建一个新的会话并启动线程处理请求
 3. 使用 DashScope 的 Qwen 大语言模型生成回复
 4. 通过 DashScope 的 TTS 服务将文本转为语音

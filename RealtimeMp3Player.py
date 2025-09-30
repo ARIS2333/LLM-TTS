@@ -1,6 +1,12 @@
+#!/usr/bin/env python3
+# Copyright (C) Alibaba Group. All Rights Reserved.
+# MIT License (https://opensource.org/licenses/MIT)
+
+# I add new functions related to threading management based on their original code.
+
+
 import subprocess
 import threading
-
 import pyaudio
 
 
@@ -26,6 +32,10 @@ class RealtimeMp3Player:
         # 添加状态标志，防止重复清理
         self._is_stopped = False
         self._cleanup_lock = threading.Lock()
+        
+        # Add internal state tracking
+        self._audio_buffer_size = 0  # Track approximate buffer size
+        self._buffer_lock = threading.Lock()  # Lock for buffer operations
 
     def reset(self):
         """
@@ -38,6 +48,7 @@ class RealtimeMp3Player:
             self.play_thread = None
             self.stop_event = threading.Event()
             self._is_stopped = False
+            self._audio_buffer_size = 0
 
     def start(self):
         """
@@ -129,7 +140,6 @@ class RealtimeMp3Player:
             except Exception as e:
                 print(f"stop error: {e}")
 
-
     def play_audio(self):
         """
         播放音频数据
@@ -159,6 +169,11 @@ class RealtimeMp3Player:
                     try:
                         # 将PCM数据写入PyAudio流进行播放
                         self._stream.write(pcm_data)
+                        
+                        # Update buffer size (decrement as we play)
+                        with self._buffer_lock:
+                            self._audio_buffer_size = max(0, self._audio_buffer_size - len(pcm_data))
+                            
                     except Exception as e:
                         if self.verbose:
                             print(f"Error writing to stream: {e}")
@@ -188,6 +203,10 @@ class RealtimeMp3Player:
                 # 将MP3数据写入ffmpeg的标准输入进行解码
                 self.ffmpeg_process.stdin.write(data)
                 
+                # Update buffer size (increment as we add data)
+                with self._buffer_lock:
+                    self._audio_buffer_size += len(data)
+                
                 if self.play_thread is None:
                     # 如果播放线程尚未启动，则初始化并启动它
                     if self._stream:
@@ -199,6 +218,60 @@ class RealtimeMp3Player:
             if self.verbose:
                 print(f'write error: {e}')
 
+    def is_playing(self) -> bool:
+        """
+        检查播放器是否还在播放音频
+        
+        Returns:
+            bool: 如果播放器还在处理或播放音频则返回True，否则返回False
+        """
+        # 如果已经停止，直接返回False
+        if self._is_stopped:
+            return False
+        
+        # 检查是否有播放线程在运行
+        if self.play_thread and self.play_thread.is_alive():
+            return True
+        
+        # 检查ffmpeg进程是否还在运行
+        if self.ffmpeg_process:
+            try:
+                # 检查进程是否还活着
+                return self.ffmpeg_process.poll() is None
+            except:
+                return False
+        
+        # 检查PyAudio流是否还活跃
+        if self._stream:
+            try:
+                return self._stream.is_active()
+            except:
+                pass
+        
+        # 检查内部缓冲区是否还有数据
+        with self._buffer_lock:
+            return self._audio_buffer_size > 0
+        
+        return False
+
+    def get_buffer_status(self) -> dict:
+        """
+        获取播放器缓冲区状态
+        
+        Returns:
+            dict: 包含缓冲区状态信息的字典
+        """
+        with self._buffer_lock:
+            buffer_size = self._audio_buffer_size
+            
+        return {
+            "is_playing": self.is_playing(),
+            "buffer_size": buffer_size,
+            "ffmpeg_process_active": self.ffmpeg_process and self.ffmpeg_process.poll() is None,
+            "play_thread_alive": self.play_thread and self.play_thread.is_alive(),
+            "stream_active": self._stream and self._stream.is_active() if self._stream else False,
+            "is_stopped": self._is_stopped
+        }
 
     def force_stop(self):
         """
@@ -251,6 +324,10 @@ class RealtimeMp3Player:
                         if self.verbose:
                             print(f"Error force terminating player: {e}")
                     self._player = None
+
+                # Reset buffer size
+                with self._buffer_lock:
+                    self._audio_buffer_size = 0
 
                 if self.verbose:
                     print("mp3 audio player is force stopped")
